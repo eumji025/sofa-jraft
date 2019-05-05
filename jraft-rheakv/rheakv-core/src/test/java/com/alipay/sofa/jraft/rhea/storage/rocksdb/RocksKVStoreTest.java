@@ -34,17 +34,18 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import com.alipay.sofa.jraft.Status;
 import com.alipay.sofa.jraft.entity.LocalFileMetaOutter.LocalFileMeta;
 import com.alipay.sofa.jraft.rhea.metadata.Region;
 import com.alipay.sofa.jraft.rhea.options.RocksDBOptions;
-import com.alipay.sofa.jraft.rhea.rocks.support.RocksStatistics;
+import com.alipay.sofa.jraft.rhea.storage.BaseKVStoreClosure;
 import com.alipay.sofa.jraft.rhea.storage.KVEntry;
 import com.alipay.sofa.jraft.rhea.storage.KVIterator;
+import com.alipay.sofa.jraft.rhea.storage.KVStoreAccessHelper;
 import com.alipay.sofa.jraft.rhea.storage.KVStoreClosure;
 import com.alipay.sofa.jraft.rhea.storage.LocalLock;
 import com.alipay.sofa.jraft.rhea.storage.RawKVStore;
 import com.alipay.sofa.jraft.rhea.storage.RocksRawKVStore;
-import com.alipay.sofa.jraft.rhea.storage.KVStoreAccessHelper;
 import com.alipay.sofa.jraft.rhea.storage.Sequence;
 import com.alipay.sofa.jraft.rhea.storage.SstColumnFamily;
 import com.alipay.sofa.jraft.rhea.storage.SyncKVStore;
@@ -82,7 +83,6 @@ public class RocksKVStoreTest extends BaseKVStoreTest {
     @Override
     @After
     public void tearDown() throws Exception {
-        System.out.println(RocksStatistics.getStatisticsString(this.kvStore));
         super.tearDown();
     }
 
@@ -243,6 +243,42 @@ public class RocksKVStoreTest extends BaseKVStoreTest {
         }.apply(this.kvStore);
         assertEquals(sequence3.getStartValue(), 0);
         assertEquals(sequence3.getEndValue(), 11);
+
+        // read-only
+        Sequence sequence4 = new SyncKVStore<Sequence>() {
+            @Override
+            public void execute(RawKVStore kvStore, KVStoreClosure closure) {
+                kvStore.getSequence(seqKey, 0, closure);
+            }
+        }.apply(this.kvStore);
+        assertEquals(sequence4.getStartValue(), 11);
+        assertEquals(sequence4.getEndValue(), 11);
+
+        KVStoreClosure assertFailed = new BaseKVStoreClosure() {
+            @Override
+            public void run(Status status) {
+                assertEquals("Fail to [GET_SEQUENCE], step must >= 0", status.getErrorMsg());
+            }
+        };
+        this.kvStore.getSequence(seqKey, -1, assertFailed);
+    }
+
+    /**
+     * Test method: {@link RocksRawKVStore#getSafeEndValueForSequence(long, int)}
+     */
+    @Test
+    public void getSafeEndValueForSequenceTest() {
+        long startVal = 1;
+        assertEquals(2, this.kvStore.getSafeEndValueForSequence(startVal, 1));
+        startVal = Long.MAX_VALUE - 1;
+        assertEquals(Long.MAX_VALUE, this.kvStore.getSafeEndValueForSequence(startVal, 1));
+        assertEquals(Long.MAX_VALUE, this.kvStore.getSafeEndValueForSequence(startVal, 2));
+        assertEquals(Long.MAX_VALUE, this.kvStore.getSafeEndValueForSequence(startVal, Integer.MAX_VALUE));
+        startVal = Long.MAX_VALUE;
+        assertEquals(Long.MAX_VALUE, this.kvStore.getSafeEndValueForSequence(startVal, 0));
+        assertEquals(Long.MAX_VALUE, this.kvStore.getSafeEndValueForSequence(startVal, 1));
+        assertEquals(Long.MAX_VALUE, this.kvStore.getSafeEndValueForSequence(startVal, 2));
+        assertEquals(Long.MAX_VALUE, this.kvStore.getSafeEndValueForSequence(startVal, Integer.MAX_VALUE));
     }
 
     /**
